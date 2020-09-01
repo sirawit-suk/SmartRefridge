@@ -72,16 +72,18 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 /////////////////////////////////// VARIABLES ///////////////////////////////////////////
 
 unsigned long now = 0;
+unsigned long prenow = 0;
 unsigned long sec = 0; 
 unsigned long presec = 0;
 
 String ESL_password = "603603"; 
 String blank_Box = "";
 bool waitState = true;
+unsigned int checkState = 0;
 
-char pressKey = NO_KEY;
+//char pressKey = NO_KEY;
 
-uint8_t mode = 2; // 0 = main, 1 = enroll 2 = scan finger 
+uint8_t mode = 0; // 0 = main, 1 = enroll 2 = scan finger 
 
 //////////////////////////////////// SET UP //////////////////////////////////////////////
 
@@ -92,46 +94,47 @@ void setup()
   
   Print("Hello, Pop!",2,0);
   Print("FingerPrint Scan",0,1);
+  
+  Serial.begin(9600);
+  finger.begin(57600);
+  while (!Serial);  // For Yun/Leo/Micro/Zero/...
+  delay(500);
+  Serial.println(F(""));
+  Serial.println(F("Welcome to Pop finger print"));
 
   //init pinmode ++
   pinMode(green_Light,OUTPUT);
   pinMode(red_Light,OUTPUT);
   pinMode(ring,OUTPUT);
-  
-  Serial.begin(9600);
-  while (!Serial);  // For Yun/Leo/Micro/Zero/...
-  delay(500);
-  Serial.println("");
-  Serial.println("Welcome to Pop finger print");
+
+  digitalWrite(red_Light,HIGH);
 
   // set the data rate for the sensor serial port
-  finger.begin(57600);
-  delay(5);
+  
   while(1){ //Check sensor until Found Sensor 
     if (finger.verifyPassword()) {
       ClearPrint("Sensor found!",1,0);
-      Serial.println("Found fingerprint sensor!");
+      Serial.println(F("Found fingerprint sensor!"));
       delay(1500);
       break;
     } else {
       ClearPrint("Did't found",2,0);
       Print("sensor!",4,1);
-      Serial.println("Did not find fingerprint sensor :(");
-      delay(100);
+      Serial.println(F("Did not find fingerprint sensor :("));
+      delay(300);
     }
   }
     
-
   finger.getTemplateCount();
 
   if (finger.templateCount == 0) {
-    Serial.print("Sensor doesn't contain any fingerprint data. Please, 'enroll' first.");
+    Serial.print(F("Sensor doesn't contain any fingerprint data. Please, 'enroll' first."));
   } 
   else {
-    Serial.println("Waiting for valid finger...");
-    Serial.print("Sensor contains "); 
+    Serial.println(F("Waiting for valid finger..."));
+    Serial.print(F("Sensor contains ")); 
     Serial.print(finger.templateCount); 
-    Serial.println(" templates");
+    Serial.println(F(" templates"));
   }
 }
 
@@ -140,27 +143,25 @@ void setup()
 void loop()                     
 {
   ClockSystem();
-  
-  CheckFingerSystem();
-  
+ 
   SelectMode();
 }
 /////////////////////////////////////// MODE //////////////////////////////////////////////
 void SelectMode(){
-  pressKey = keypad.getKey(); //getKey will get NO_KEY as default
-
+  char pressKey = keypad.getKey(); //getKey will get NO_KEY as default
   switch(mode){
-    case 0: DefaultMode();       //normalMode
+    case 0: DefaultMode(pressKey);       //normalMode
+            CheckFingerSystem();
             break;
-    case 1: EnterPassMode();
+    case 1: EnterPassMode(pressKey);
             break;
-    case 2: AdminMode();
+    case 2: AdminMode(pressKey);
             break;
   } 
 }
 
 //////////////////////////////////// CASE BY CASE //////////////////////////////////////////////
-void DefaultMode(){
+void DefaultMode(char pressKey){
   waitState = true; 
   if (pressKey != NO_KEY){ //Check if something press or not... 
     if(pressKey == 'A'){          //normalMode   
@@ -172,7 +173,7 @@ void DefaultMode(){
     }
   }
 }
-void EnterPassMode(){
+void EnterPassMode(char pressKey){
 
   if (pressKey != NO_KEY){  
     if(pressKey == '#' && blank_Box == ESL_password){   //Password ESL: 603603
@@ -187,14 +188,19 @@ void EnterPassMode(){
       return;
     }
       
-    if(pressKey == 'B' || pressKey == 'C' || pressKey == 'D'){        
+    if(pressKey == 'C' || pressKey == 'D'){        
       Reset();
       InitModel_1();
       
     }else{
-      if(pressKey != 'A') 
+      if (pressKey == 'B'){
+        InitModel_1();
+        blank_Box.remove(blank_Box.length()-1);
+      }
+      else if(pressKey != 'A'){
         blank_Box += pressKey;
-        
+      }
+      
       if(blank_Box.length() > ESL_password.length()|| (pressKey == '#' && blank_Box != ESL_password)){
         Wrong();
         InitModel_1();
@@ -206,14 +212,32 @@ void EnterPassMode(){
      
   }
 }
-void AdminMode(){
+void AdminMode(char pressKey){
+  if (presec < sec){
+    if (sec == 61){                 //0
+      Print(String(61-sec),11,1);
+      BackToFirst();
+    }
+    else if(sec > 50){
+      Print(String(61-sec),11,1);   //9..8....1
+      Print(" ",12,1);
+    }
+    else{
+      Print(String(61-sec),11,1);   // 60-10
+    }
+    presec = sec;
+  }
+  
   if (pressKey != NO_KEY){ //Check if something press or not... 
     switch(pressKey){
-      case '1': Add();
+      case '1': Add(pressKey);
+                InitModel_2();
                 break;
-      case '2': Delete();
+      case '2': Delete(pressKey);
+                InitModel_2();
                 break;
       case '3': Unlock();
+                InitModel_2();
                 break;
       case '*': BackToFirst();
                 break;
@@ -222,24 +246,29 @@ void AdminMode(){
 
 }
 /////////////Mainfuction//////////////
-void Add(){
-  Serial.println("Ready to enroll a fingerprint!");
-  Serial.println("Please type in the ID # (from 1 to 127) you want to save this finger as...");
+void Add(char pressKey){
+  Serial.println(F("Ready to enroll a fingerprint!"));
+  Serial.println(F("Please type in the ID # (from 1 to 127) you want to save this finger as..."));
   pressKey = NO_KEY;
   ClearPrint("Type ID (1-127):",0,0);
   
   String temp = "";
+  delay(300); // Debounce key first time...
   
   while(pressKey != '#'){
     pressKey = keypad.getKey();
-    if(pressKey != NO_KEY && pressKey != '#' && pressKey != 'A' && pressKey != 'B' && pressKey != 'C' && pressKey != 'D' && pressKey != '*'){
-       temp += pressKey;
+
+    if (pressKey == '*'){
+       return;
+    }
+    else if (pressKey == 'B'){                //Delete last digit
+       temp.remove(temp.length()-1);
+       ClearPrint("Type ID (1-127):",0,0);
        Print(temp,7,1);
        Serial.println(temp);
     }
-    else if (pressKey == '*'){
-       temp.remove(temp.length()-1);
-       ClearPrint("Type ID (1-127):",0,0);
+    else if(pressKey != NO_KEY && pressKey != '#' && pressKey != 'A' && pressKey != 'C' && pressKey != 'D' && pressKey != '*'){
+       temp += pressKey;
        Print(temp,7,1);
        Serial.println(temp);
     }
@@ -250,12 +279,50 @@ void Add(){
   if (id == 0) {// ID #0 not allowed, try again!
      ClearPrint("ID #0 Not allow",0,0);
      Print("Try again",4,1);
-     Serial.println("Error: ID #0 not allowed, try again");
+     Serial.println(F("Error: ID #0 not allowed, try again"));
      return;
   }
-  while (!getFingerprintEnroll(id));
+  while (getFingerprintEnroll(id) != 0);
 }
-void Delete(){
+void Delete(char pressKey){
+  Serial.println("Please type in the ID # (from 1 to 127) you want to delete...");
+  pressKey = NO_KEY;
+  ClearPrint("Type ID (1-127):",0,0);
+  
+  String temp = "";
+  delay(300); // Debounce key first time...
+  
+  while(pressKey != '#'){
+    pressKey = keypad.getKey();
+
+    if (pressKey == '*'){
+       return;
+    }
+    else if (pressKey == 'B'){                //Delete last digit
+       temp.remove(temp.length()-1);
+       ClearPrint("Type ID (1-127):",0,0);
+       Print(temp,7,1);
+       Serial.println(temp);
+    }
+    else if(pressKey != NO_KEY && pressKey != '#' && pressKey != 'A' && pressKey != 'C' && pressKey != 'D' && pressKey != '*'){
+       temp += pressKey;
+       Print(temp,7,1);
+       Serial.println(temp);
+    }
+  }
+  
+  uint8_t id = temp.toInt();
+  if (id == 0) {// ID #0 not allowed, try again!
+     ClearPrint("ID #0 Not allow",0,0);
+     Print("Try again",4,1);
+     Serial.println(F("Error: ID #0 not allowed, try again"));
+     return;
+  }
+
+  Serial.print("Deleting ID #");
+  Serial.println(id);
+  
+  deleteFingerprint(id);
   
 }
 ///////////////Subfunction////////////
@@ -269,25 +336,43 @@ void InitModel_2(){
   delay(1000);     
   ClearPrint("1 Add 2 Delete ",1,0);
   Print("3 Unlock: ",1,1);
+  sec = 0;
+  presec =0;
+  
 }
 
 //////////////////////////////////// ALL SYSTEM //////////////////////////////////////////////
 
 void ClockSystem(){
   now = millis(); 
-  sec = now/1000;
+  if (now - prenow >= 1000){
+    sec++;
+    prenow = now;
+  }
 }
 
 void CheckFingerSystem(){
   int checkFinger = getFingerprintIDez();
-  
+  Serial.print(checkFinger);
+  Serial.print("    ");
+  Serial.println(checkState);
   if(checkFinger == 1){             //PASS
     Unlock();
+    checkState = 0;
   }else if(checkFinger == -1){      //FAIL
-    Fail();
+    if (checkState < 2){
+      checkState++;
+    }
+    else{
+      Fail();
+      delay(200);
+      checkState = 0;
+    }
+
   }else if(sec!= presec && waitState == true){    //WAIT
     Waiting();
     presec = sec;
+    checkState = 0;
   }
 }
 
@@ -310,6 +395,7 @@ int getFingerprintIDez() {
 uint8_t getFingerprintEnroll(uint8_t id) {
 
   int p = -1;
+  ClearPrint("Place Finger",2,0);
   Serial.print(F("Waiting for valid finger to enroll as #")); 
   Serial.println(id);
   while (p != FINGERPRINT_OK) {
@@ -319,6 +405,13 @@ uint8_t getFingerprintEnroll(uint8_t id) {
       Serial.println(F("Image taken"));
       break;
     case FINGERPRINT_NOFINGER:
+      now = millis();
+      sec = now/1000;
+      if (sec % 5 == 0) Print(".    ",3,1);
+      else if (sec % 5 == 1) Print("..   ",3,1);
+      else if (sec % 5 == 2) Print("...  ",3,1);
+      else if (sec % 5 == 3) Print(".... ",3,1);
+      else if (sec % 5 == 4) Print(".....",3,1);
       Serial.println(F("."));
       break;
     case FINGERPRINT_PACKETRECIEVEERR:
@@ -358,6 +451,7 @@ uint8_t getFingerprintEnroll(uint8_t id) {
   }
   
   Serial.println(F("Remove finger"));
+  ClearPrint("Remove finger",1,0);
   delay(2000);
   p = 0;
   while (p != FINGERPRINT_NOFINGER) {
@@ -365,12 +459,11 @@ uint8_t getFingerprintEnroll(uint8_t id) {
   }
   Serial.print(F("ID ")); 
   Serial.println(id);
-
-
-
   
   p = -1;
-  Serial.println(F("Place same finger again"));
+  Serial.println(F("Place same finger again"));           //Place finger again
+  ClearPrint("Place FG again",1,0);
+  
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     switch (p) {
@@ -378,6 +471,13 @@ uint8_t getFingerprintEnroll(uint8_t id) {
       Serial.println(F("Image taken"));
       break;
     case FINGERPRINT_NOFINGER:
+      now = millis();
+      sec = now/1000;
+      if (sec % 5 == 0) Print(".    ",3,1);
+      else if (sec % 5 == 1) Print("..   ",3,1);
+      else if (sec % 5 == 2) Print("...  ",3,1);
+      else if (sec % 5 == 3) Print(".... ",3,1);
+      else if (sec % 5 == 4) Print(".....",3,1);
       Serial.print(F("."));
       break;
     case FINGERPRINT_PACKETRECIEVEERR:
@@ -421,6 +521,7 @@ uint8_t getFingerprintEnroll(uint8_t id) {
   Serial.println(id);
   
   p = finger.createModel();
+  Serial.println(p);
   if (p == FINGERPRINT_OK) {
     Serial.println(F("Prints matched!"));
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
@@ -438,7 +539,12 @@ uint8_t getFingerprintEnroll(uint8_t id) {
   Serial.println(id);
   p = finger.storeModel(id);
   if (p == FINGERPRINT_OK) {
+    ClearPrint("Stored Complete!",0,0);
+    Print("ID:",4,1);
+    Print(String(id),8,1);
+    delay(2000);
     Serial.println(F("Stored!"));
+    return 0;                                           //Finish Enroll
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
     Serial.println(F("Communication error"));
     return p;
@@ -454,21 +560,46 @@ uint8_t getFingerprintEnroll(uint8_t id) {
   }   
 }
 
+uint8_t deleteFingerprint(uint8_t id) {           //Delete finger 
+  uint8_t p = -1;
+  
+  p = finger.deleteModel(id);
+
+  if (p == FINGERPRINT_OK) {
+    ClearPrint("Deleted Complete!",0,0);
+    Print("ID:",4,1);
+    Print(String(id),8,1);
+    delay(2000);
+    Serial.println("Deleted!");
+  } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    Serial.println("Communication error");
+    return p;
+  } else if (p == FINGERPRINT_BADLOCATION) {
+    Serial.println("Could not delete in that location");
+    return p;
+  } else if (p == FINGERPRINT_FLASHERR) {
+    Serial.println("Error writing to flash");
+    return p;
+  } else {
+    Serial.print("Unknown error: 0x"); Serial.println(p, HEX);
+    return p;
+  }   
+}
+
 ////////////////////////////////// LOCK SYSTEM ////////////////////////////////////////
 void Unlock(){
-  waitState = true;
   ClearPrint("Access Granted!",1,0);
   Print("Need a drink?",2,1);
-  Serial.println("Need a drink?");
-  Serial.print("Found ID #"); Serial.print(finger.fingerID); 
-  Serial.print(" with confidence of "); Serial.println(finger.confidence);
+  Serial.println(F("Need a drink?"));
+  Serial.print(F("Found ID #")); Serial.print(finger.fingerID); 
+  Serial.print(F(" with confidence of ")); Serial.println(finger.confidence);
   GreenBlink();
 }
 void Fail(){
   ClearPrint("Invalid!",4,0);
   Print("Please Try again",0,1);
   FailBeep();
-  Serial.println("Invalid! Please try again.");
+  Serial.println(F("Invalid! Please try again."));
 }
 
 
@@ -493,13 +624,13 @@ void Waiting(){
 void Reset(){
   blank_Box = "";
   ClearPrint("Clear!",5,0);
-  Serial.println("Clear");
+  Serial.println(F("Clear"));
   delay(500);
 }
 void Wrong(){
   blank_Box = "";
   ClearPrint("Wrong! Try again",0,0);
-  Serial.println("Wrong! Try again");
+  Serial.println(F("Wrong! Try again"));
   delay(1000);
 }
 void BackToFirst(){
@@ -521,36 +652,18 @@ void Print(String text, int pos,int line){
 
 ////////////////////////////////// LIGHT ////////////////////////////////////////
 void GreenBlink(){
-  Serial.println("GREEN ON"); 
+  Serial.println(F("GREEN ON")); 
   digitalWrite(red_Light,LOW);
   digitalWrite(green_Light,HIGH);
 
   PassBeep();
-  //delay(4000); //DON'T Forget
+  delay(4000);
   digitalWrite(green_Light,LOW);
   digitalWrite(red_Light,HIGH); 
 }
 
 /////////////////////////////// SOUND ALERT ////////////////////////////////////////
 void PassBeep(){
-  digitalWrite(ring,HIGH);
-  delay(265);
-  digitalWrite(ring,LOW); 
-  delay(250);
-  
-  digitalWrite(ring,HIGH);
-  delay(150);
-  digitalWrite(ring,LOW); 
-  delay(150);
-  digitalWrite(ring,HIGH);
-  delay(150);
-  digitalWrite(ring,LOW); 
-  delay(200);
-  
-  digitalWrite(ring,HIGH);
-  delay(200);
-  digitalWrite(ring,LOW); 
-  delay(200);
   digitalWrite(ring,HIGH);
   delay(200);
   digitalWrite(ring,LOW);   //150
@@ -565,36 +678,6 @@ void FailBeep(){
   delay(180);
   digitalWrite(ring,LOW); 
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 /*
@@ -666,32 +749,4 @@ uint8_t getFingerprintID() {
 
   return finger.fingerID;
 }
-*/
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//if (pressKey != NO_KEY){ //Check if something press or not... 
-
-
-/*
-  digitalWrite(red_Light,HIGH); 
-  Serial.print("RETURN : ");
-  Serial.print(checkFinger);
-  Serial.print("   Found ID # "); 
-  Serial.print(finger.fingerID); 
-  Serial.print(" with confidence of "); 
-  Serial.println(finger.confidence);
 */
