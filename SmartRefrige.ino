@@ -73,13 +73,16 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
 unsigned long now = 0;
 unsigned long prenow = 0;
-unsigned long sec = 0; 
-unsigned long presec = 0;
+unsigned int sec = 0; 
+unsigned int presec = 0;
 
 String ESL_password = "603603"; 
 String blank_Box = "";
 bool waitState = true;
-unsigned int checkState = 0;
+uint8_t checkState = 0;
+
+bool toggleUnlock = false;
+uint8_t checkToggle = 0;
 
 //char pressKey = NO_KEY;
 
@@ -151,7 +154,9 @@ void SelectMode(){
   char pressKey = keypad.getKey(); //getKey will get NO_KEY as default
   switch(mode){
     case 0: DefaultMode(pressKey);       //normalMode
-            CheckFingerSystem();
+            if(toggleUnlock == false){
+              CheckFingerSystem();
+            } 
             break;
     case 1: EnterPassMode(pressKey);
             break;
@@ -162,7 +167,12 @@ void SelectMode(){
 
 //////////////////////////////////// CASE BY CASE //////////////////////////////////////////////
 void DefaultMode(char pressKey){
-  waitState = true; 
+  if (toggleUnlock == false){
+    waitState = true;
+  }else{
+    waitState = false;
+  }
+   
   if (pressKey != NO_KEY){ //Check if something press or not... 
     if(pressKey == 'A'){          //normalMode   
       mode = 1;
@@ -170,6 +180,24 @@ void DefaultMode(char pressKey){
     //Nextstate
       InitModel_1();
       return;
+    }
+    else if (pressKey == 'D'){
+      checkToggle++;
+    }
+
+    if (checkToggle >=5){
+      if(toggleUnlock == false){
+        ClearPrint("Toggle Unlock",1,0);
+        Print("Special Event ^^",0,1);
+        GreenBlinkNoDelay();
+        toggleUnlock = true;
+        checkToggle = 0;
+        waitState = false;
+      }else{
+        RedBlinkNoDelay();
+        toggleUnlock = false;
+        checkToggle = 0;
+      }
     }
   }
 }
@@ -243,9 +271,9 @@ void AdminMode(char pressKey){
                 break;
     }
   }
-
 }
-/////////////Mainfuction//////////////
+
+///////////////////////////////// Mainfuction ////////////////////////////////////
 void Add(char pressKey){
   Serial.println(F("Ready to enroll a fingerprint!"));
   Serial.println(F("Please type in the ID # (from 1 to 127) you want to save this finger as..."));
@@ -285,7 +313,7 @@ void Add(char pressKey){
   while (getFingerprintEnroll(id) != 0);
 }
 void Delete(char pressKey){
-  Serial.println("Please type in the ID # (from 1 to 127) you want to delete...");
+  Serial.println(F("Please type in the ID # (from 1 to 127) you want to delete..."));
   pressKey = NO_KEY;
   ClearPrint("Type ID (1-127):",0,0);
   
@@ -319,13 +347,13 @@ void Delete(char pressKey){
      return;
   }
 
-  Serial.print("Deleting ID #");
+  Serial.print(F("Deleting ID #"));
   Serial.println(id);
   
   deleteFingerprint(id);
   
 }
-///////////////Subfunction////////////
+//////////////////////////////////// Subfunction //////////////////////////////////////////////
 void InitModel_1(){
   waitState = false;             
   ClearPrint("ESL Password : ",1,0);
@@ -353,9 +381,6 @@ void ClockSystem(){
 
 void CheckFingerSystem(){
   int checkFinger = getFingerprintIDez();
-  Serial.print(checkFinger);
-  Serial.print("    ");
-  Serial.println(checkState);
   if(checkFinger == 1){             //PASS
     Unlock();
     checkState = 0;
@@ -660,6 +685,17 @@ void GreenBlink(){
   delay(4000);
   digitalWrite(green_Light,LOW);
   digitalWrite(red_Light,HIGH); 
+}
+void GreenBlinkNoDelay(){
+  Serial.println(F("GREEN ON")); 
+  digitalWrite(red_Light,LOW);
+  digitalWrite(green_Light,HIGH);
+  PassBeep();
+}
+void RedBlinkNoDelay(){
+  digitalWrite(green_Light,LOW);
+  digitalWrite(red_Light,HIGH);
+  PassBeep(); 
 }
 
 /////////////////////////////// SOUND ALERT ////////////////////////////////////////
